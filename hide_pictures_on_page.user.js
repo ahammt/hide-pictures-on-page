@@ -1,5 +1,5 @@
 // ==UserScript==
-// @namespace         http://tampermonkey.net/
+// @namespace         https://github.com/SoyaDokio/hide-pictures-on-page
 
 // @name              一键隐藏图片
 // @name:zh           一键隐藏图片
@@ -9,13 +9,16 @@
 // @description:zh    摸鱼时页面显示与工作不相关的图片未免有些明目张胆，这时候就需要一键隐藏全图了。
 // @description:en    hide all pictures on page by clicking
 
-// @version           0.2.1
+// @version           0.3.1
 // @author            SoyaDokio
 // @license           LGPLv3
+// @supportURL        https://github.com/SoyaDokio/hide-pictures-on-page/issues
 
 // @match             *://*/*
 
 // @grant             GM_addStyle
+// @grant             GM_getValue
+// @grant             GM_setValue
 
 // @require           https://cdn.jsdelivr.net/npm/jquery@3.4.1/dist/jquery.slim.min.js
 // @run-at            document-start
@@ -24,19 +27,57 @@
 (function() {
     "use strict";
 
+    var hpop_userData = null;
+    var hpop_defaultData = {
+        "version": "0.3.1",
+        "position": {
+            "top": $(window).height() / 2 - 14 + "",
+            "left": "0",
+            "right": "auto"
+        }
+    }
+
     init();
 
     function init() {
-        addCtrlPopup();
-        addCtrlEvent();
+        // 校验本地是否存在本地缓存数据
+        hpop_userData = GM_getValue("hpop_userData");
+        if(!hpop_userData) {
+            hpop_userData = hpop_defaultData;
+        }
+        // 将新添加的数据保存到本地缓存数据中
+        var updFlag = false;
+        for(let value in hpop_defaultData) {
+            if(!hpop_userData.hasOwnProperty(value)) {
+                hpop_userData[value] = hpop_defaultData[value];
+                updFlag = true;
+            }
+        }
+        if (updFlag) {
+            saveSetting(hpop_userData);
+        }
+
+        createCtrlPanel();
+        bindMouseCtrl();
+        addDragEffect();
     }
 
-    // 添加控制开关的控制区域
-    function addCtrlPopup() {
+    // 保存配置到本地
+    function saveSetting(hpop_userData) {
+        GM_setValue("hpop_userData", hpop_userData);
+    }
+
+    // 创建控制面板（浮动元素）
+    function createCtrlPanel() {
         var node = document.createElement("hide-pictures-on-page");
-        node.id = "hpop-ctrl";
-        node.className = "hpop-ctrl";
-        node.style.cssText = "position:fixed;top:" + ($(window).height()/2-14) + "px;left:0px;";
+        node.id = "hpop-panel";
+        if (hpop_userData.position.left == 0) {
+            node.className = "hpop-panel hpop-panel-left";
+        }
+        if (hpop_userData.position.right == 0) {
+            node.className = "hpop-panel hpop-panel-right";
+        }
+        node.style.cssText = "position:fixed;top:" + hpop_userData.position.top + "px;left:" + hpop_userData.position.left + "px;right:" + hpop_userData.position.right + "px;";
         node.innerHTML = "<input type='checkbox' id='hpop-switch' /><label style='cursor:pointer;font-size:12px;color:3d3d3d;'>图片隐藏</label>";
         if (window.self === window.top) {
             if (document.querySelector("body")) {
@@ -45,21 +86,28 @@
                 document.documentElement.appendChild(node);
             }
         }
-        // 给控制开关绑定事件
-        node.addEventListener("mouseover", function () {
-            node.classList.add("hpop-active");
+        // 添加控制面板的鼠标滑入/滑出效果
+        node.addEventListener("mouseover", function() {
+            node.classList.add("hpop-panel-active");
+            if (hpop_userData.position.left == 0) {
+                node.classList.add("hpop-panel-left-active");
+            }
+            if (hpop_userData.position.right == 0) {
+                node.classList.add("hpop-panel-right-active");
+            }
         });
-        node.addEventListener("mouseleave", function () {
+        node.addEventListener("mouseleave", function() {
             setTimeout(function() {
-                node.classList.remove("hpop-active");
-            }, 100);
+                node.classList.remove("hpop-panel-active");
+                node.classList.remove("hpop-panel-left-active");
+                node.classList.remove("hpop-panel-right-active");
+            }, 300);
         });
-        // 添加控制开关所需式样
+        // 添加控制面板所需式样
         var style = document.createElement("style");
         style.type = "text/css";
-        var styleRaw = "#hpop-ctrl{" +
+        var styleRaw = ".hpop-panel{" +
                 "position:fixed;" +
-                "transform:translate(-63px,0);" +
                 "width:64px;" +
                 "height:20px;" +
                 "font-size:12px;" +
@@ -77,12 +125,23 @@
                 "line-height:20px;" +
                 "padding:3px 6px;" +
                 "border:1px solid #ccc;" +
+                "box-sizing: content-box;" +
+            "}" +
+            ".hpop-panel-left{" +
+                "transform:translate(-63px,0);" +
                 "border-width:1px 1px 1px 0;" +
                 "border-top-right-radius: 14px;" +
                 "border-bottom-right-radius: 14px;" +
-                "box-sizing: content-box;" +
             "}" +
-            "#hpop-ctrl input{" +
+            ".hpop-panel-right{" +
+                "transform:translate(63px,0);" +
+                "border-width:1px 0 1px 1px;" +
+                "border-top-left-radius: 14px;" +
+                "border-bottom-left-radius: 14px;" +
+                "padding-left: 10px;" +
+                "padding-right: 0;" +
+            "}" +
+            ".hpop-panel input{" +
                 "margin: 0;" +
                 "padding: 0;" +
                 "vertical-align:middle;" +
@@ -93,29 +152,35 @@
                 "opacity: 1;" +
                 "cursor: pointer;" +
             "}" +
-            "#hpop-ctrl.hpop-active{" +
-                "left: 0px;" +
+            ".hpop-panel.hpop-panel-active{" +
                 "width:70px;" +
-                "transform:translate(0,0);" +
                 "opacity: 0.9;" +
             "}" +
-            "#hpop-ctrl label{" +
+            ".hpop-panel.hpop-panel-left-active{" +
+                "left: 0px;" +
+                "transform:translate(0,0);" +
+            "}" +
+            ".hpop-panel.hpop-panel-right-active{" +
+                "right: 0px;" +
+                "transform:translate(0,0);" +
+            "}" +
+            ".hpop-panel label{" +
                 "margin:0;" +
                 "padding:0 0 0 3px;" +
                 "font-weight:500;" +
             "}" +
             " ";
         style.innerHTML = styleRaw;
-        if (document.querySelector("#hpop-ctrl")) {
-            document.querySelector("#hpop-ctrl").appendChild(style);
+        if (document.querySelector("#hpop-panel")) {
+            document.querySelector("#hpop-panel").appendChild(style);
         } else {
             GM_addStyle(styleRaw);
         }
     }
 
-    // 绑定控制事件
-    function addCtrlEvent() {
-        document.querySelector("#hpop-ctrl").addEventListener("click", function() {
+    // 绑定控制面板点击事件
+    function bindMouseCtrl() {
+        document.querySelector("#hpop-panel").addEventListener("click", function() {
             if (document.querySelector("#hpop-switch").checked) {
                 document.querySelector("#hpop-switch").checked = false;
                 $("img").show("500");
@@ -132,6 +197,46 @@
                 document.querySelector("#hpop-switch").checked = true;
                 $("img").show("500");
             }
+        });
+    }
+
+    // 添加拖拽效果
+    function addDragEffect() {
+        var node = document.querySelector("#hpop-panel");
+        node.addEventListener("mousedown", function(event) {
+            node.style.transition = "null";
+            var dispX = event.clientX - node.offsetLeft;
+            var dispY = event.clientY - node.offsetTop;
+
+            var move = function(event) {
+                node.style.left = event.clientX - dispX + "px" ;
+                node.style.top  = event.clientY - dispY + "px" ;
+            }
+
+            document.addEventListener("mousemove", move);
+            document.addEventListener("mouseup", function() {
+                node.style.transition = "0.3s";
+                document.removeEventListener("mousemove", move);
+                var bodyWidth = document.body.clientWidth;
+                var hpop_nodeWidth = node.offsetLeft + node.offsetWidth / 2;
+                if(hpop_nodeWidth > bodyWidth / 2){
+                    node.style.left = "auto";
+                    node.style.right = 0;
+                    node.classList.remove("hpop-panel-left");
+                    node.classList.add("hpop-panel-right");
+                    console.log("2 right");
+                    hpop_userData.position.left = "auto";
+                    hpop_userData.position.right = "0";
+                } else {
+                    node.style.left = hpop_userData.position.left =  0;
+                    node.style.right = hpop_userData.position.right = "auto";
+                    node.classList.add("hpop-panel-left");
+                    node.classList.remove("hpop-panel-right");
+                    console.log("2 left");
+                }
+                hpop_userData.position.top = node.offsetTop;
+                saveSetting(hpop_userData);
+            });
         });
     }
 })();
